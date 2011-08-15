@@ -1,0 +1,12 @@
+ssdp2wol is a simple utility that listens for SSDP (used by DLNA/UPnP)
+discovery requests, and when it receives one, sends a Wake-on-LAN packet to a
+specified NIC.  It's designed so that you can allow your primary media server
+to sleep, but when a DLNA device (such as Smart TV, PS3, Xbox, etc.) starts
+looking for media, it will wake it right up.  You'll need to run it on a
+separate server (Windows, Mac, or Linux); I run it on my router, which is an
+embedded Linux system.
+
+It depends on the open source Mordor library for its HTTP parsing and
+support libraries.  I don't currently have a separate build system set up;
+I've just been copying it over one of Mordor's examples, and then copying
+it out.

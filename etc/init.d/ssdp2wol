@@ -1,0 +1,83 @@
+#! /bin/sh
+
+### BEGIN INIT INFO
+# Provides:          kpi
+# Required-Start:    $local_fs $network $syslog
+# Required-Stop:     $local_fs $network $syslog
+# Default-Start:     3 4 5
+# Default-Stop:      0 1 2 6
+# Short-Description: kpi
+# Description:       kpi daemon
+#                    This provides rsyncd daemon functionality.
+### END INIT INFO
+
+DAEMON=$(basename $0)
+
+BIN=/usr/bin/$DAEMON
+DEFAULTS_FILE=/etc/default/$DAEMON
+export PIDFILE=/var/run/$DAEMON.pid
+
+. /lib/lsb/init-functions
+
+if [ -s $DEFAULTS_FILE ]; then
+    . $DEFAULTS_FILE
+fi
+
+case "$1" in
+  start)
+    start_daemon -p $PIDFILE $BIN
+    exit $?
+    ;;
+  stop)
+    killproc -p $PIDFILE $BIN
+    exit $?
+    ;;
+  restart)
+    log_success_msg "Restarting $DAEMON"
+    killproc -p $PIDFILE $BIN && start_daemon -p $PIDFILE $BIN
+    exit $?
+    ;;
+  try-restart)
+    pidofproc -p $PIDFILE $BIN
+    if [ $? -eq 0 ]; then
+      log_success_msg "Restarting $DAEMON"
+      killproc -p $PIDFILE $BIN && start_daemon -p $PIDFILE $BIN
+      exit $?
+    else
+      log_warning_msg "$DAEMON is not running"
+      exit 0
+    fi
+    ;;
+  reload)
+    killproc -p $PIDFILE $BIN -HUP
+    exit $?
+    ;;
+  force-reload)
+    killproc -p $PIDFILE $BIN -HUP
+    exit $?
+    ;;
+  status)
+    pidofproc -p $PIDFILE $BIN
+    STATUS=$?
+    case $STATUS in
+      0)
+        log_success_msg "$DAEMON is running"
+        ;;
+      1)
+        log_warning_msg "$DAEMON is dead, but $PIDFILE exists"
+        ;;
+      3)
+        log_success_msg "$DAEMON is not running"
+        ;;
+      *)
+        log_failure_msg "Status of $DAEMON is unknown"
+        ;;
+    esac
+    exit $STATUS
+    ;;
+  *)
+    log_warning_msg "Usage: $0 {start|stop|restart|try-restart|reload|force-reload|status}"
+    exit 1
+esac
+
+exit 0
