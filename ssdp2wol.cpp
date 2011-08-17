@@ -18,11 +18,13 @@ static ConfigVar<std::string>::ptr g_macAddress = Config::lookup("macaddress",
   std::string(), "MAC address to send WOL to");
 static ConfigVar<std::string>::ptr g_interface = Config::lookup("interface",
   std::string("eth0"), "Interface to listen and send on");
+static ConfigVar<std::string>::ptr g_blacklist = Config::lookup("blacklist",
+  std::string(), "Semicolon separate list of IP addresses to ignore");
 
 static void wol(Socket::ptr socket, const std::string &macAddress) {
   MORDOR_ASSERT(macAddress.size() == 6u);
   std::string message;
-  message.append(6u, 0xff);
+  message.append(6u, (char)0xff);
   for(size_t i = 0; i < 16; ++i)
       message.append(macAddress);
   socket->send(message.c_str(), message.size());
@@ -32,11 +34,24 @@ static int daemonMain(int argc, char *argv[])
 {
     try {
         std::string macAddressString = g_macAddress->val();
-        if(macAddressString.size() != 12u) {
+        replace(macAddressString, "-", "");
+        if (macAddressString.size() != 12u) {
             std::cerr << "MAC address must be 12 characters" << std::endl;
             return -1;
         }
         std::string macAddress = dataFromHexstring(macAddressString);
+
+        std::set<IPAddress::ptr> blacklistedAddresses;
+        std::vector<std::string> blacklistedAddressesString = split(
+            g_blacklist->val(), ";, ");
+        for(std::vector<std::string>::const_iterator it(
+            blacklistedAddressesString.begin());
+            it != blacklistedAddressesString.end();
+            ++it) {
+            if(it->empty())
+                continue;
+            blacklistedAddresses.insert(IPAddress::create(it->c_str()));
+        }
 
         std::vector<std::pair<Address::ptr, unsigned int> > addresses =
             Address::getInterfaceAddresses(g_interface->val(), AF_INET);
@@ -46,8 +61,10 @@ static int daemonMain(int argc, char *argv[])
             return -1;
         }
 
-        IPAddress::ptr broadcastAddress = boost::static_pointer_cast<IPAddress>(
-            addresses.front().first)->broadcastAddress(addresses.front().second);
+        IPAddress::ptr localAddress = boost::static_pointer_cast<IPAddress>(
+            addresses.front().first);
+        IPAddress::ptr broadcastAddress = localAddress->broadcastAddress(
+            addresses.front().second);
         broadcastAddress->port(9u);
         IPv4Address multicastAddress("239.255.255.250", 1900);
 
@@ -61,7 +78,8 @@ static int daemonMain(int argc, char *argv[])
         Socket::ptr listenSocket(multicastAddress.createSocket(ioManager,
             SOCK_DGRAM));
         listenSocket->setOption(SOL_SOCKET, SO_REUSEADDR, 1);
-        listenSocket->bind(multicastAddress);
+        localAddress->port(1900u);
+        listenSocket->bind(localAddress);
         // TODO: listenSocket->joinGroup(multicastAddress, addresses.front().first);
         struct ip_mreq multicastGroup;
         memcpy(&multicastGroup.imr_multiaddr, &((sockaddr_in *)multicastAddress.name())->sin_addr, sizeof(struct in_addr));
@@ -76,14 +94,24 @@ static int daemonMain(int argc, char *argv[])
             char buffer[4096];
             size_t size;
             while((size = listenSocket->receiveFrom(buffer, 4096, sender))) {
+                IPAddress::ptr senderDuplicate = sender.clone();
+                senderDuplicate->port(0u);
+                if (blacklistedAddresses.find(senderDuplicate) ==
+                    blacklistedAddresses.end()) {
+                    MORDOR_LOG_VERBOSE(Log::root())
+                        << "Skipping broadcast from " << sender;
+                    continue;
+                }
+
                 HTTP::Request request;
                 HTTP::RequestParser parser(request);
                 parser.run(buffer, size);
-                if (parser.final() && !parser.error() &&
-                    request.requestLine.method == "M-SEARCH") {
-                    MORDOR_LOG_INFO(Log::root()) << "Relaying M-SEARCH to WOL from "
-                        << sender;
-                    wol(broadcastSocket, macAddress);
+                if (parser.complete() && !parser.error()) {
+                    if (request.requestLine.method == "M-SEARCH") {
+                        MORDOR_LOG_INFO(Log::root()) << "Relaying M-SEARCH to WOL from "
+                            << sender;
+                        wol(broadcastSocket, macAddress);
+                    }
                 } else {
                     MORDOR_LOG_WARNING(Log::root()) << "Unable to parse HTTP request from "
                         << sender << ": " << charslice(buffer, size);
