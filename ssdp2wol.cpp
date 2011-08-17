@@ -41,7 +41,7 @@ static int daemonMain(int argc, char *argv[])
         }
         std::string macAddress = dataFromHexstring(macAddressString);
 
-        std::set<IPAddress::ptr> blacklistedAddresses;
+        std::set<Address::ptr> blacklistedAddresses;
         std::vector<std::string> blacklistedAddressesString = split(
             g_blacklist->val(), ";, ");
         for(std::vector<std::string>::const_iterator it(
@@ -78,8 +78,7 @@ static int daemonMain(int argc, char *argv[])
         Socket::ptr listenSocket(multicastAddress.createSocket(ioManager,
             SOCK_DGRAM));
         listenSocket->setOption(SOL_SOCKET, SO_REUSEADDR, 1);
-        localAddress->port(1900u);
-        listenSocket->bind(localAddress);
+        listenSocket->bind(IPv4Address(0u, 1900u));
         // TODO: listenSocket->joinGroup(multicastAddress, addresses.front().first);
         struct ip_mreq multicastGroup;
         memcpy(&multicastGroup.imr_multiaddr, &((sockaddr_in *)multicastAddress.name())->sin_addr, sizeof(struct in_addr));
@@ -96,7 +95,7 @@ static int daemonMain(int argc, char *argv[])
             while((size = listenSocket->receiveFrom(buffer, 4096, sender))) {
                 IPAddress::ptr senderDuplicate = sender.clone();
                 senderDuplicate->port(0u);
-                if (blacklistedAddresses.find(senderDuplicate) ==
+                if (blacklistedAddresses.find(senderDuplicate) !=
                     blacklistedAddresses.end()) {
                     MORDOR_LOG_VERBOSE(Log::root())
                         << "Skipping broadcast from " << sender;
